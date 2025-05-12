@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BatchIQ Recipe Scaler</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f9f9f9; margin:0; padding:0; }
+    .container { max-width: 600px; margin: 4rem auto; background:#fff; padding:2rem; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
+    h1 { margin-top:0; font-size:1.5rem; }
+    input[type=email], button { width:100%; padding:0.75rem; font-size:1rem; margin-top:0.5rem; }
+    button { background:#0070f3; color:#fff; border:none; border-radius:4px; cursor:pointer; }
+    button:hover { background:#005bb5; }
+    iframe { width:100%; height:700px; border:1px solid #ddd; border-radius:4px; margin-top:1rem; }
+  </style>
+</head>
+<body>
+  <div class="container" id="gate-container">
+    <h1>Unlock the BatchIQ Recipe Scaler</h1>
+    <p>Enter your email to get instant access:</p>
+    <input type="email" id="user-email" placeholder="you@example.com" />
+    <button id="unlock-btn">Unlock &amp; Scale</button>
+  </div>
+
+  <div class="container" id="scaler-container" style="display:none;">
+    <h1>BatchIQ Recipe Scaler</h1>
+    <iframe
+      src="https://batchiq-recipe-scaler.onrender.com"
+      allow="clipboard-write"
+      loading="lazy">
+    </iframe>
+  </div>
+
+  <!-- Supabase client + unlock logic -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    // Supabase init
+    const SUPABASE_URL = 'https://zebjxxqxovajpcoecuai.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InplYmp4eHF4b3ZhanBjb2VjdWFpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwNzU4OTEsImV4cCI6MjA2MjY1MTg5MX0.CuG_42BA8v9LcE0dxpWn24wK-vgbzbc3SBPMB_DAI8I';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    async function subscribeUser(email) {
+      const { error } = await supabase
+        .from('users')
+        .upsert({ email }, { onConflict: ['email'] });
+      if (error) console.error('Supabase upsert error:', error.message);
+    }
+
+    const gate = document.getElementById('gate-container');
+    const scaler = document.getElementById('scaler-container');
+    const emailInput = document.getElementById('user-email');
+    const unlockBtn = document.getElementById('unlock-btn');
+
+    // Auto-unlock if already stored
+    if (localStorage.getItem('batchiq_email')) {
+      gate.style.display = 'none';
+      scaler.style.display = 'block';
+    }
+
+    unlockBtn.addEventListener('click', async () => {
+      const email = emailInput.value.trim();
+      if (!email.includes('@')) return alert('Please enter a valid email.');
+
+      localStorage.setItem('batchiq_email', email);
+      await subscribeUser(email);
+
+      gate.style.display = 'none';
+      scaler.style.display = 'block';
+    });
+  </script>
+</body>
+</html>

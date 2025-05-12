@@ -32,30 +32,57 @@
   </div>
 
   <!-- Supabase client + unlock logic -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-  const SUPABASE_URL     = 'https://zebjxxqxovajpcoecuai.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.…';
-  // grab the global createClient function
-  const { createClient } = supabase;  
-  // name your client something else
-  const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  <!-- 1) Load Supabase client -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+<!-- 2) Supabase + gate logic -->
+<script>
+  // — Initialize Supabase client —
+  const SUPABASE_URL     = 'https://zebjxxqxovajpcoecuai.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InplYmp4eHF4b3ZhanBjb2VjdWFpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwNzU4OTEsImV4cCI6MjA2MjY1MTg5MX0.CuG_42BA8v9LcE0dxpWn24wK-vgbzbc3SBPMB_DAI8I';
+  // Destructure createClient from the globally loaded supabase object
+  const { createClient } = supabase;
+  const supabaseClient   = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // — Function to upsert the user’s email —
   async function subscribeUser(email) {
     const { error } = await supabaseClient
       .from('users')
       .upsert({ email }, { onConflict: ['email'] });
-    if (error) console.error('Supabase error:', error.message);
+    if (error) console.error('Supabase upsert error:', error.message);
   }
 
-  // rest of your unlock logic…
-  unlockBtn.addEventListener('click', async () => {
-    const email = emailInput.value.trim();
-    if (!email.includes('@')) return alert('Invalid email');
-    localStorage.setItem('batchiq_email', email);
-    await subscribeUser(email);
-    gate.style.display = 'none';
-    scaler.style.display = 'block';
+  // — DOM Ready — 
+  document.addEventListener('DOMContentLoaded', () => {
+    // Grab your gate & scaler containers plus inputs/buttons
+    const gate      = document.getElementById('gate-container');
+    const scaler    = document.getElementById('scaler-container');
+    const emailInput= document.getElementById('user-email');
+    const unlockBtn = document.getElementById('unlock-btn');
+
+    // Auto-unlock if they’ve already been here
+    if (localStorage.getItem('batchiq_email')) {
+      gate.style.display   = 'none';
+      scaler.style.display = 'block';
+    }
+
+    // Wire up the Unlock button
+    unlockBtn.addEventListener('click', async () => {
+      const email = emailInput.value.trim();
+      if (!email.includes('@')) {
+        return alert('Please enter a valid email.');
+      }
+
+      // 1) Save locally
+      localStorage.setItem('batchiq_email', email);
+
+      // 2) Upsert into Supabase
+      await subscribeUser(email);
+
+      // 3) Reveal the scaler
+      gate.style.display   = 'none';
+      scaler.style.display = 'block';
+    });
   });
 </script>
 </body>

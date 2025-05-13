@@ -3,6 +3,7 @@ import json
 import re
 import os
 from supabase import create_client
+from middleware import enforce_usage_limit
 
 app = Flask(__name__)
 
@@ -224,49 +225,77 @@ def scale():
 def scale_recipe_api():
     data = request.get_json() or {}
     email = data.get('email')
+
     if not email:
-        return jsonify({"error":"Email required"}), 400
+        return jsonify({"error": "Email required"}), 400
+
     # Fetch user record
-    resp = supabase.from_('users').select('usage_count,paid').eq('email', email).single().execute()
+    resp = supabase.from_('users').select('*').eq('email', email).single().execute()
     user = resp.data
     if not user:
-        return jsonify({"error":"Email not registered"}), 400
-    if not user['paid'] and user['usage_count'] >= 5:
+        return jsonify({"error": "Email not registered"}), 400
+
+    usage_count = user.get('usage_count', 0)
+    tier = user.get('tier', 'free')
+    paid = user.get('paid', False)
+
+    # Enforce limit for free/unpaid users
+    FREE_LIMIT = 5
+    if tier == 'free' and not paid and usage_count >= FREE_LIMIT:
         return jsonify({
             "error": "limit_reached",
             "message": "You’ve used your 5 free scalings. Please upgrade to continue."
         }), 402
+
     # Parse ingredients
     if isinstance(data.get('ingredients'), list):
         ingredients = data['ingredients']
     else:
-        ingredients = [parse_line(l) for l in data.get('ingredients','').splitlines() if l.strip()]
+        ingredients = [parse_line(l) for l in data.get('ingredients', '').splitlines() if l.strip()]
+
     total_protein = sum(i['protein'] for i in ingredients if i.get('protein') is not None)
     serv = data.get('servings', 1)
     factor = 1.0
     result_pps = None
+
     if data.get('scaling_type') == 'servings':
         ts = data.get('target_servings') or 0
         if serv and ts:
-            factor = ts/serv
+            factor = ts / serv
     else:
         tp = data.get('target_protein') or 0
         if total_protein > 0 and tp:
-            factor = (tp * serv)/total_protein
+            factor = (tp * serv) / total_protein
             result_pps = tp
+
     scaled_resp = []
     for ing in ingredients:
         if ing.get('no_scale'):
             scaled_resp.append({'name': ing['name'], 'no_scale': True})
         else:
-            qty = round(ing['quantity']*factor,1)
-            prot = round(ing.get('protein',0)*factor,1) if ing.get('protein') is not None else None
-            scaled_resp.append({'name': ing['name'], 'quantity': qty, 'unit': ing['unit'], 'protein': prot})
-    # Increment usage
-    supabase.from_('users').update({'usage_count': user['usage_count']+1}).eq('email', email).execute()
-    resp_payload = {'scaling_type': data.get('scaling_type'), 'factor': round(factor,1), 'scaled_ingredients': scaled_resp}
+            qty = round(ing['quantity'] * factor, 1)
+            prot = round(ing.get('protein', 0) * factor, 1) if ing.get('protein') is not None else None
+            scaled_resp.append({
+                'name': ing['name'],
+                'quantity': qty,
+                'unit': ing['unit'],
+                'protein': prot
+            })
+
+    # Increment usage and update timestamp
+    supabase.from_('users').update({
+        'usage_count': usage_count + 1,
+        'last_used': datetime.utcnow().isoformat()
+    }).eq('email', email).execute()
+
+    resp_payload = {
+        'scaling_type': data.get('scaling_type'),
+        'factor': round(factor, 1),
+        'scaled_ingredients': scaled_resp
+    }
     if result_pps is not None:
         resp_payload['new_pps'] = result_pps
+
     return jsonify(resp_payload)
 
 if __name__ == '__main__':

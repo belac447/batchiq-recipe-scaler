@@ -1,9 +1,9 @@
-from flask import Flask, request, jsonify, render_template_string
+import os
 import json
 import re
-import os
+from datetime import datetime
+from flask import Flask, request, jsonify, render_template_string
 from supabase import create_client
-from middleware import enforce_usage_limit
 
 app = Flask(__name__)
 
@@ -13,7 +13,7 @@ SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Load protein lookup and aliases
-to_grams = {'g':1,'kg':1000,'oz':28.35,'cup':240,'tbsp':15,'tsp':5}
+to_grams = {'g': 1, 'kg': 1000, 'oz': 28.35, 'cup': 240, 'tbsp': 15, 'tsp': 5}
 with open('protein_lookup.json') as f:
     protein_100g = json.load(f)
 try:
@@ -22,7 +22,7 @@ try:
 except:
     aliases = {}
 
-# Fancy Bootstrap-based template
+# HTML template
 template = """
 <!DOCTYPE html>
 <html lang="en">
@@ -122,8 +122,6 @@ function toggleFields() {
 </html>
 """
 
-# Parser and API logic remain unchanged
-
 def parse_line(line):
     text = line.strip().lstrip('-* ').strip()
     qty_pattern = r'(?P<q>\d+\s+\d+/\d+|\d+/\d+|\d+\.?\d*)'
@@ -144,9 +142,7 @@ def parse_line(line):
         qty = float(qty_str)
     unit = m.group('u').lower()
     name = m.group('n').strip().lower()
-    # Strip parentheses
     name = re.sub(r'\s*\(.*?\)', '', name).strip()
-    # Alias mapping
     for alias, actual in aliases.items():
         if alias in name:
             name = actual
@@ -160,7 +156,7 @@ def parse_line(line):
         if matches:
             best_key, best_val = max(matches, key=lambda x: len(x[0]))
             grams = qty * to_grams[unit]
-            protein = round(grams/100*best_val, 1)
+            protein = round(grams / 100 * best_val, 1)
     return {'name': name, 'quantity': qty, 'unit': unit, 'protein': protein, 'no_scale': False}
 
 @app.route('/', methods=['GET'])
@@ -174,7 +170,6 @@ def scale():
     lines = request.form.get('ingredients', '').splitlines()
     ingredients = [parse_line(l) for l in lines if l.strip()]
     warnings = []
-
     total_protein = sum(i['protein'] for i in ingredients if i['protein'] is not None)
     factor = 1.0
     new_pps = None
@@ -210,28 +205,18 @@ def scale():
         total_scaled_protein = sum(item['protein'] for item in scaled if item['protein'] is not None)
         approx_pps = round(total_scaled_protein / target_servings, 1)
 
-    return render_template_string(
-        template,
-        scaled=scaled,
-        factor=round(factor, 1),
-        warnings=warnings,
-        scaling_type=stype,
-        servings=servings,
-        new_pps=new_pps,
-        approx_pps=approx_pps
-    )
+    return render_template_string(template, scaled=scaled, factor=round(factor, 1), warnings=warnings,
+                                  scaling_type=stype, servings=servings, new_pps=new_pps, approx_pps=approx_pps)
 
 @app.route('/scale-recipe', methods=['POST'])
 def scale_recipe_api():
     data = request.get_json() or {}
     email = data.get('email')
-
     if not email:
         return jsonify({"error": "Email required"}), 400
 
-    # Fetch user record
-    resp = supabase.from_('users').select('*').eq('email', email).single().execute()
-    user = resp.data
+    result = supabase.from_('users').select('*').eq('email', email).single().execute()
+    user = result.data
     if not user:
         return jsonify({"error": "Email not registered"}), 400
 
@@ -239,7 +224,6 @@ def scale_recipe_api():
     tier = user.get('tier', 'free')
     paid = user.get('paid', False)
 
-    # Enforce limit for free/unpaid users
     FREE_LIMIT = 5
     if tier == 'free' and not paid and usage_count >= FREE_LIMIT:
         return jsonify({
@@ -247,25 +231,23 @@ def scale_recipe_api():
             "message": "You’ve used your 5 free scalings. Please upgrade to continue."
         }), 402
 
-    # Parse ingredients
-    if isinstance(data.get('ingredients'), list):
-        ingredients = data['ingredients']
-    else:
-        ingredients = [parse_line(l) for l in data.get('ingredients', '').splitlines() if l.strip()]
+    ingredients = data.get('ingredients', [])
+    if not isinstance(ingredients, list):
+        ingredients = [parse_line(l) for l in ingredients.splitlines() if l.strip()]
 
     total_protein = sum(i['protein'] for i in ingredients if i.get('protein') is not None)
-    serv = data.get('servings', 1)
+    servings = data.get('servings', 1)
     factor = 1.0
     result_pps = None
 
     if data.get('scaling_type') == 'servings':
-        ts = data.get('target_servings') or 0
-        if serv and ts:
-            factor = ts / serv
+        target_servings = data.get('target_servings') or 0
+        if servings and target_servings:
+            factor = target_servings / servings
     else:
         tp = data.get('target_protein') or 0
         if total_protein > 0 and tp:
-            factor = (tp * serv) / total_protein
+            factor = (tp * servings) / total_protein
             result_pps = tp
 
     scaled_resp = []
@@ -275,28 +257,22 @@ def scale_recipe_api():
         else:
             qty = round(ing['quantity'] * factor, 1)
             prot = round(ing.get('protein', 0) * factor, 1) if ing.get('protein') is not None else None
-            scaled_resp.append({
-                'name': ing['name'],
-                'quantity': qty,
-                'unit': ing['unit'],
-                'protein': prot
-            })
+            scaled_resp.append({'name': ing['name'], 'quantity': qty, 'unit': ing['unit'], 'protein': prot})
 
-    # Increment usage and update timestamp
     supabase.from_('users').update({
         'usage_count': usage_count + 1,
         'last_used': datetime.utcnow().isoformat()
     }).eq('email', email).execute()
 
-    resp_payload = {
+    response_payload = {
         'scaling_type': data.get('scaling_type'),
         'factor': round(factor, 1),
         'scaled_ingredients': scaled_resp
     }
     if result_pps is not None:
-        resp_payload['new_pps'] = result_pps
+        response_payload['new_pps'] = result_pps
 
-    return jsonify(resp_payload)
+    return jsonify(response_payload)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

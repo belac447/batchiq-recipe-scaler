@@ -42,7 +42,6 @@ template = """
 <div class="container">
     <div class="card card-main shadow-sm">
         <div class="card-body">
-            <h1 class="card-title text-center">BatchIQ Recipe Scaler</h1>
             <form id="scale-form" method="post" action="/scale" class="row g-3">
                 <div class="col-md-4">
                     <label for="servings" class="form-label">Current Servings</label>
